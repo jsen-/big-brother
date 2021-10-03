@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch",
+            "program": "${workspaceFolder}/target/debug/k8s-watcher",
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "build",
+            "sourceMap": {
+                "/rustc/05044c2e6c043929a11537d7f6169eb3a2397bb8": "/home/max/.local/share/rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/",
+            }
+        }
+    ]
+}
