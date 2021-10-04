@@ -1,6 +1,7 @@
 mod api_group;
 mod api_resource;
 mod api_version;
+pub mod cluster_config;
 mod resource;
 
 use self::api_version::ApiVersions;

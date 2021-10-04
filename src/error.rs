@@ -1,4 +1,7 @@
-use crate::{event::EventParseError, k8s_client::K8sClientError};
+use crate::{
+    event::EventParseError,
+    k8s_client::{api::cluster_config::ClusterConfigError, K8sClientError},
+};
 use std::io;
 
 #[derive(Debug, thiserror::Error)]
@@ -17,4 +20,6 @@ pub enum Error {
     ServerBind(io::Error),
     #[error("Server could not run server: {:?}", _0)]
     ServerRun(io::Error),
+    #[error("Could not obtain cluster config: {:?}", _0)]
+    ClusterConfig(#[from] ClusterConfigError),
 }

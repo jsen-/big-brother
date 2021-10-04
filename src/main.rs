@@ -13,15 +13,14 @@ use actix_web::{
 use engine::Cache;
 use error::Error;
 use event::EventType;
-use k8s_client::{api::ResourceVersion, K8sClient};
-use reqwest::{Certificate, Identity};
+use k8s_client::{
+    api::{cluster_config::ClusterConfig, ResourceVersion},
+    K8sClient,
+};
 use serde::Deserialize;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
-
-static PEM: &[u8] = include_bytes!("../identity.pem");
-static CACERT: &[u8] = include_bytes!("../root.crt");
 
 #[derive(serde::Serialize)]
 struct OutputEvent {
@@ -36,12 +35,8 @@ struct AppData {
 }
 
 fn main() -> Result<(), Error> {
-    let cacert = Certificate::from_pem(CACERT).unwrap();
-    let identity = Identity::from_pem(PEM).unwrap();
-    let base_url = "https://localhost:6443";
-
-    let k8s_client = K8sClient::new(base_url, cacert, identity)?;
-
+    let cc = ClusterConfig::detect()?;
+    let k8s_client = K8sClient::from_cluster_config(cc)?;
     actix_web::rt::System::new().block_on(async move {
         let engine = engine::watch(k8s_client).await?;
         let cache = engine.cache().clone();

@@ -1,10 +1,12 @@
 pub mod api;
 
-use crate::k8s_client::api::{K8sApiError, ResourceVersion};
-use api::{ApiGetter, ApiWatcher};
+use api::{
+    cluster_config::{AuthMethod, ClusterConfig},
+    ApiGetter, ApiWatcher, K8sApiError, ResourceVersion,
+};
 use backoff::{future::retry_notify, ExponentialBackoff};
 use futures_util::TryFutureExt;
-use reqwest::{Certificate, Identity, Method, Request, Response, Url};
+use reqwest::{header::HeaderValue, Method, Request, Response, Url};
 use std::{
     str::FromStr,
     time::{Duration, Instant},
@@ -14,6 +16,7 @@ use std::{
 pub struct K8sClient {
     base_url: Url,
     client: reqwest::Client,
+    token: Option<HeaderValue>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -27,17 +30,24 @@ pub enum K8sClientError {
 }
 
 impl K8sClient {
-    pub fn new(base_url: &str, cacert: Certificate, identity: Identity) -> Result<Self, K8sClientError> {
-        let client = reqwest::Client::builder()
-            .add_root_certificate(cacert)
-            .identity(identity)
+    fn client_builder() -> reqwest::ClientBuilder {
+        reqwest::Client::builder()
             .use_rustls_tls() // identity from PEM only works in rustls
             .tls_built_in_root_certs(false)
             .https_only(true)
-            .build()
-            .map_err(K8sClientError::Reqwest)?;
-        let base_url = reqwest::Url::from_str(base_url).map_err(K8sClientError::UrlParse)?;
-        Ok(Self { base_url, client })
+    }
+    pub fn from_cluster_config(cluster_config: ClusterConfig) -> Result<Self, K8sClientError> {
+        let builder = Self::client_builder().add_root_certificate(cluster_config.cacert);
+        let (token, builder) = match cluster_config.auth {
+            AuthMethod::Identity(identity) => (None, builder.identity(identity)),
+            AuthMethod::Token(token) => (Some(token), builder),
+        };
+        let client = builder.build().map_err(K8sClientError::Reqwest)?;
+        Ok(Self {
+            base_url: reqwest::Url::from_str(&cluster_config.server).map_err(K8sClientError::UrlParse)?,
+            client,
+            token,
+        })
     }
 
     fn backoff() -> ExponentialBackoff {
@@ -65,6 +75,9 @@ impl K8sClient {
         let send = move || {
             let mut req = Request::new(method.clone(), url.clone());
             *req.body_mut() = Some(reqwest::Body::from(body.clone()));
+            if let Some(token) = &self.token {
+                req.headers_mut().append(reqwest::header::AUTHORIZATION, token.clone());
+            }
 
             self.client.execute(req).map_err(|e| {
                 if e.is_connect() || e.is_decode() || e.is_timeout() {
@@ -91,7 +104,6 @@ impl K8sClient {
 
     pub async fn watch<T: ApiWatcher>(&self, watcher: &T, rv: ResourceVersion) -> Result<Response, K8sClientError> {
         let req = watcher.watch(rv);
-        println!("{:?}", req);
         self.send(&req.method, &req.relative_url, req.body).await
     }
 }

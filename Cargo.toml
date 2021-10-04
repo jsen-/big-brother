@@ -28,6 +28,9 @@ backoff = { version="0.3.0", features=["tokio"] }
 thiserror = "1.0.26"
 qstring = "0.7.2"
 uriparse = "0.6.3"
+serde_yaml = "0.8.17"
+dirs = "4.0.0"
+base64 = "0.13.0"
 
 [dev-dependencies]
 tokio-test = "0.4.2"

@@ -109,7 +109,6 @@ impl Engine {
                                             Err(e) => eprintln!("{:?}", e),
                                             Ok(evt) => {
                                                 last_rv = evt.resource_version;
-                                                println!("{}", last_rv);
                                                 let mut writer = cache.write().await;
                                                 match &evt.event_type {
                                                     EventType::Added | EventType::Modified => writer.update(
