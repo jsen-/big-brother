@@ -1,9 +1,9 @@
 pub mod api;
 
-use crate::{engine::ResourceVersion, k8s_client::api::K8sApiError};
+use crate::k8s_client::api::{K8sApiError, ResourceVersion};
 use api::{ApiGetter, ApiWatcher};
 use backoff::{future::retry_notify, ExponentialBackoff};
-use futures::TryFutureExt;
+use futures_util::TryFutureExt;
 use reqwest::{Certificate, Identity, Method, Request, Response, Url};
 use std::{
     str::FromStr,

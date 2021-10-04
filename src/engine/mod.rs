@@ -5,21 +5,20 @@ mod to_serde;
 use crate::{
     engine::to_serde::convert_value_to_value,
     error::Error,
-    event::{Event, EventType, ResourceId},
+    event::{Event, EventType},
     k8s_client::{
         api::{
             ApiGroupListGetter, ApiResource, ApiResourceListGetter, ApiVersionListGetter, CoreResourceListGetter,
-            ListItem, Resource, ResourceListGetter,
+            ListItem, Resource, ResourceId, ResourceListGetter, ResourceVersion,
         },
         K8sClient,
     },
 };
 pub use cache::Cache;
-pub use cache::ResourceVersion;
 use destream_json::{try_decode_iter, Value as DValue};
-use futures::{pin_mut, StreamExt};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tokio_stream::StreamExt;
 
 pub async fn watch(k8s_client: K8sClient) -> Result<Engine, Error> {
     let engine = Engine {
@@ -51,7 +50,10 @@ impl Engine {
                 version: version.clone(),
                 plural: api_resource.name.clone(),
             };
-            println!("{:?}", getter);
+            let api_version = match &group {
+                None => version.clone(),
+                Some(group) => format!("{}/{}", group, version),
+            };
             match k8s_client.get(&getter).await {
                 Err(err) => eprintln!("k8s client error {:?}", err),
                 Ok(resource_list) => match resource_list.metadata.resource_version.parse::<ResourceVersion>() {
@@ -72,8 +74,8 @@ impl Engine {
                                     Ok(res) => match res.metadata.resource_version.parse::<ResourceVersion>() {
                                         Ok(rv) => {
                                             let k8s_resource = ResourceId {
-                                                api_version: resource_list.api_version.clone(),
-                                                kind: resource_list.kind.clone(),
+                                                api_version: api_version.clone(),
+                                                kind: api_resource.kind.clone(),
                                                 name: res.metadata.name.clone(),
                                                 namespace: res.metadata.namespace.clone(),
                                             };
@@ -98,9 +100,12 @@ impl Engine {
                                 Ok(response) => {
                                     let json_stream =
                                         try_decode_iter::<_, _, DValue>((), response.bytes_stream()).await;
-                                    pin_mut!(json_stream);
+                                    tokio::pin!(json_stream);
                                     while let Some(value) = json_stream.next().await {
-                                        match value.map_err(Error::Deserialize).and_then(Event::try_from) {
+                                        match value
+                                            .map_err(Error::Deserialize)
+                                            .and_then(|value| Event::try_from(value).map_err(Error::EventParseError))
+                                        {
                                             Err(e) => eprintln!("{:?}", e),
                                             Ok(evt) => {
                                                 last_rv = evt.resource_version;

@@ -1,24 +1,24 @@
 #![feature(more_qualified_paths)]
 #![feature(const_option)]
-mod error;
-mod k8s_client;
 mod engine;
+mod error;
 mod event;
-
-use std::sync::Arc;
+mod k8s_client;
 
 use actix_web::{
     body::BodyStream,
     web::{self, Bytes, Data},
     App, HttpResponse, HttpServer, Responder,
 };
-use k8s_client::K8sClient;
-use engine::{watch, Cache, ResourceVersion};
+use engine::Cache;
 use error::Error;
 use event::EventType;
-use futures::StreamExt;
+use k8s_client::{api::ResourceVersion, K8sClient};
 use reqwest::{Certificate, Identity};
+use serde::Deserialize;
+use std::{collections::HashSet, sync::Arc};
 use tokio::sync::RwLock;
+use tokio_stream::StreamExt;
 
 static PEM: &[u8] = include_bytes!("../identity.pem");
 static CACERT: &[u8] = include_bytes!("../root.crt");
@@ -43,36 +43,69 @@ fn main() -> Result<(), Error> {
     let k8s_client = K8sClient::new(base_url, cacert, identity)?;
 
     actix_web::rt::System::new().block_on(async move {
-        let engine = watch(k8s_client).await?;
+        let engine = engine::watch(k8s_client).await?;
         let cache = engine.cache().clone();
         let server = HttpServer::new(move || {
             App::new() //
                 .app_data(Data::new(AppData { cache: cache.clone() }))
-                .service(index)
+                .service(watch)
+                .service(list)
         })
-        .bind(("127.0.0.1", 8080))?;
-        server.run().await?;
+        .bind(("127.0.0.1", 8080))
+        .map_err(Error::ServerBind)?;
+        server.run().await.map_err(Error::ServerRun)?;
         Ok::<_, Error>(())
     })?;
     Ok(())
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Debug, Deserialize)]
+enum Filter {
+    #[serde(rename = "include")]
+    Include(String),
+    #[serde(rename = "exclude")]
+    Exclude(String),
+}
+
+#[derive(Debug, Deserialize)]
 struct Query {
     #[serde(rename = "resourceVersion")]
     resource_version: Option<ResourceVersion>,
+    #[serde(flatten)]
+    filter: Option<Filter>,
 }
 
 #[actix_web::get("/watch")]
-async fn index(query: web::Query<Query>, appdata: web::Data<AppData>) -> impl Responder {
+async fn watch(query: web::Query<Query>, appdata: web::Data<AppData>) -> impl Responder {
+    let filter: Box<dyn Fn(&str) -> bool> = match &query.filter {
+        None => Box::new(move |_| true),
+        Some(Filter::Include(filter)) => {
+            let names = filter.split(',').map(|x| x.to_string()).collect::<HashSet<String>>();
+            Box::new(move |name| names.contains(name))
+        }
+        Some(Filter::Exclude(filter)) => {
+            let names = filter.split(',').map(|x| x.to_string()).collect::<HashSet<_>>();
+            Box::new(move |name| !names.contains(name))
+        }
+    };
     let cache = appdata.get_ref().cache.read().await;
     let stream = cache.stream(query.resource_version);
-    let stream = stream.map(|evt| {
-        let evt = evt.unwrap();
-        let mut vec = serde_json::to_vec(&evt).unwrap();
-        vec.push(b'\n');
-        Ok::<_, std::io::Error>(Bytes::from(vec))
+    let stream = stream.map(move |evt| {
+        let (res, evt) = evt.unwrap();
+        if filter(&res.kind) {
+            let mut vec = serde_json::to_vec(&evt).unwrap();
+            vec.push(b'\n');
+            Ok::<_, std::io::Error>(Bytes::from(vec))
+        } else {
+            Ok(Bytes::new())
+        }
     });
     let ret = BodyStream::new(stream);
     HttpResponse::Ok().body(ret)
+}
+
+#[actix_web::get("/list")]
+async fn list(appdata: web::Data<AppData>) -> impl Responder {
+    let cache = appdata.get_ref().cache.read().await;
+    HttpResponse::Ok().body(cache.list())
 }

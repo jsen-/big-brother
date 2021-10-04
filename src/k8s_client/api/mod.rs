@@ -3,6 +3,7 @@ mod api_resource;
 mod api_version;
 mod resource;
 
+use self::api_version::ApiVersions;
 use api_group::{ApiGroup, ApiGroupList};
 pub use api_resource::{ApiResource, ApiResourceList};
 use reqwest::{Method, StatusCode};
@@ -10,9 +11,15 @@ pub use resource::{ListItem, Metadata, Resource, ResourceList};
 use std::fmt;
 use uriparse::relative_reference::RelativeReference;
 
-use crate::engine::ResourceVersion;
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ResourceId {
+    pub api_version: String,
+    pub kind: String,
+    pub name: String,
+    pub namespace: Option<String>,
+}
 
-use self::api_version::ApiVersions;
+pub type ResourceVersion = u64;
 
 pub trait ApiWatcher: ApiGetter {
     fn watch(&self, rv: ResourceVersion) -> Req<Self::Output> {

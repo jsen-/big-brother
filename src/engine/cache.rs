@@ -1,3 +1,4 @@
+use crate::k8s_client::api::{ResourceId, ResourceVersion};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -6,10 +7,6 @@ use tokio_stream::{
     wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
     Stream, StreamExt,
 };
-
-use crate::event::ResourceId;
-
-pub type ResourceVersion = u64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
@@ -25,37 +22,11 @@ pub struct OutputEvent {
     object: Value,
 }
 
-// impl<'en> destream::ToStream<'en> for OutputEvent {
-//     fn to_stream<E: destream::Encoder<'en>>(&'en self, encoder: E) -> Result<E::Ok, E::Error> {
-//         let mut map = encoder.encode_map(Some(2))?;
-//         let evt_type = match self.ty {
-//             OutputEventType::Deleted => "DELETED",
-//             OutputEventType::Modified => "MODIFIED",
-//         };
-//         map.encode_entry("type", evt_type)?;
-//         map.encode_entry("object", &self.object)?;
-//         map.end()
-//     }
-// }
-
-// impl<'en> destream::IntoStream<'en> for OutputEvent {
-//     fn into_stream<E: destream::Encoder<'en>>(self, encoder: E) -> Result<E::Ok, E::Error> {
-//         let mut map = encoder.encode_map(Some(2))?;
-//         let evt_type = match self.ty {
-//             OutputEventType::Deleted => "DELETED",
-//             OutputEventType::Modified => "MODIFIED",
-//         };
-//         map.encode_entry("type", evt_type)?;
-//         map.encode_entry("object", &self.object)?;
-//         map.end()
-//     }
-// }
-
 #[derive(Debug)]
 pub struct Cache {
     resources: HashMap<ResourceId, Option<(ResourceVersion, Value)>>,
     changes: BTreeMap<ResourceVersion, ResourceId>,
-    tx: broadcast::Sender<OutputEvent>,
+    tx: broadcast::Sender<(ResourceId, OutputEvent)>,
 }
 
 fn deleted_event(res: ResourceId, rv: ResourceVersion) -> Value {
@@ -96,28 +67,51 @@ impl Cache {
     }
 
     pub fn update(&mut self, res: ResourceId, rv: ResourceVersion, value: Value) {
-        self.update_internal(res, rv, Some(value.clone()));
+        self.update_internal(res.clone(), rv, Some(value.clone()));
         self.tx
-            .send(OutputEvent {
-                ty: OutputEventType::Modified,
-                object: value,
-            })
+            .send((
+                res,
+                OutputEvent {
+                    ty: OutputEventType::Modified,
+                    object: value,
+                },
+            ))
             .ok(); // `send` will fail when there are no currently receivers, but we don't really care
     }
 
     pub fn remove(&mut self, res: ResourceId, rv: ResourceVersion) {
         self.update_internal(res.clone(), rv, None);
         self.tx
-            .send(OutputEvent {
-                ty: OutputEventType::Deleted,
-                object: deleted_event(res, rv),
-            })
+            .send((
+                res.clone(),
+                OutputEvent {
+                    ty: OutputEventType::Deleted,
+                    object: deleted_event(res, rv),
+                },
+            ))
             .ok(); // `send` will fail when there are no currently receivers, but we don't really care
+    }
+    pub fn list(&self) -> String {
+        let it = self.resources.iter().map(|(res, v)| match v {
+            Some((rv, _)) => format!(
+                "<td>{}</td><td>{}</td><td>{:?}</td><td>{}</td><td>{}</td>",
+                res.api_version, res.kind, res.namespace, res.name, rv
+            ),
+            None => format!(
+                "<td>{}</td><td>{}</td><td>{:?}</td><td>{}</td><td></td>",
+                res.api_version, res.kind, res.namespace, res.name
+            ),
+        });
+        let head = std::iter::once("<table><tr><th>apiVersion</th><th>kind</th><th>(namespace)</th><th>name</th><th>resourceVersion</th></tr><tr>".to_string());
+        let it = it.intersperse("</tr><tr>".to_string());
+        let tail = std::iter::once("</tr></table>".to_string());
+        let s = head.chain(it).chain(tail).collect::<String>();
+        s
     }
     pub fn stream(
         &self,
         rv: Option<ResourceVersion>,
-    ) -> impl Stream<Item = Result<OutputEvent, BroadcastStreamRecvError>> {
+    ) -> impl Stream<Item = Result<(ResourceId, OutputEvent), BroadcastStreamRecvError>> {
         let range = match rv {
             Some(rv) => self.changes.range(rv..),
             None => self.changes.range(..),
@@ -125,10 +119,13 @@ impl Cache {
         let changes = range
             .filter_map(|(_rv, res)| {
                 self.resources[res].as_ref().map(|(_rv, value)| {
-                    Ok(OutputEvent {
-                        ty: OutputEventType::Modified,
-                        object: value.clone(),
-                    })
+                    Ok((
+                        res.clone(),
+                        OutputEvent {
+                            ty: OutputEventType::Modified,
+                            object: value.clone(),
+                        },
+                    ))
                 })
             })
             .collect::<Vec<_>>();
@@ -168,22 +165,25 @@ mod test {
     #[tokio::test]
     async fn changes_add() {
         let mut cache = Cache::new();
-        cache.update(make_res("av", "k", "n1", None), 1, Value::Null);
-        cache.update(make_res("av", "k", "n2", None), 2, Value::Null);
+        let res1 = make_res("av", "k", "n1", None);
+        let res2 = make_res("av", "k", "n2", None);
+        cache.update(res1.clone(), 1, Value::Null);
+        cache.update(res2.clone(), 2, Value::Null);
         let mut stream = Box::pin(cache.stream(None));
         drop(cache);
-        assert_eq!(stream.next().await, Some(Ok(make_evt_modified(Value::Null))));
-        assert_eq!(stream.next().await, Some(Ok(make_evt_modified(Value::Null))));
+        assert_eq!(stream.next().await, Some(Ok((res1, make_evt_modified(Value::Null)))));
+        assert_eq!(stream.next().await, Some(Ok((res2, make_evt_modified(Value::Null)))));
         assert_eq!(stream.next().await, None);
     }
     #[tokio::test]
     async fn changes_overwrite() {
         let mut cache = Cache::new();
-        cache.update(make_res("av", "k", "n", None), 1, Value::Null);
-        cache.update(make_res("av", "k", "n", None), 2, Value::Null);
+        let res = make_res("av", "k", "n", None);
+        cache.update(res.clone(), 1, Value::Null);
+        cache.update(res.clone(), 2, Value::Null);
         let mut stream = Box::pin(cache.stream(None));
         drop(cache);
-        assert_eq!(stream.next().await, Some(Ok(make_evt_modified(Value::Null))));
+        assert_eq!(stream.next().await, Some(Ok((res, make_evt_modified(Value::Null)))));
         assert_eq!(stream.next().await, None);
     }
     #[tokio::test]
@@ -204,8 +204,11 @@ mod test {
         let mut stream = Box::pin(cache.stream(None));
         cache.remove(res.clone(), 2);
         drop(cache);
-        assert_eq!(stream.next().await, Some(Ok(make_evt_modified(Value::Null))));
-        assert_eq!(stream.next().await, Some(Ok(make_evt_deleted(res, 2))));
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((res.clone(), make_evt_modified(Value::Null))))
+        );
+        assert_eq!(stream.next().await, Some(Ok((res.clone(), make_evt_deleted(res, 2)))));
         assert_eq!(stream.next().await, None);
     }
 }

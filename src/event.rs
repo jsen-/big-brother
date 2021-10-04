@@ -1,14 +1,7 @@
-use crate::{engine::ResourceVersion, error::Error};
+use crate::k8s_client::api::{ResourceId, ResourceVersion};
+use destream_json::Value;
 use serde::Serialize;
 use std::fmt;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Hash)]
-pub struct ResourceId {
-    pub api_version: String,
-    pub kind: String,
-    pub name: String,
-    pub namespace: Option<String>,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
@@ -28,57 +21,67 @@ impl fmt::Display for EventType {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Event {
     pub event_type: EventType,
     pub resource: ResourceId,
-    pub value: destream_json::Value,
+    pub value: Value,
     pub resource_version: ResourceVersion,
 }
 
-// impl<'en> destream::ToStream<'en> for Event {
-//     fn to_stream<E: destream::Encoder<'en>>(&'en self, encoder: E) -> Result<E::Ok, E::Error> {
-//         let mut map = encoder.encode_map(Some(2))?;
-//         let evt_type = match self.event_type {
-//             EventType::Deleted => "DELETED",
-//             EventType::Modified => "MODIFIED",
-//             EventType::Added => "ADDED",
-//         };
-//         map.encode_entry("type", evt_type)?;
-//         map.encode_entry("object", &self.value)?;
-//         map.end()
-//     }
-// }
+#[derive(Debug, thiserror::Error)]
+pub enum EventParseError {
+    #[error("\"resourceVersion\" is not type string: {:?}", _0)]
+    InvalidResourceVersion(String),
+    #[error("\"namespace\" is not type string: {:?}", _0)]
+    NamespaceNotString(Value),
+    #[error("Missing \"name\" or \"resourceVersion\" property")]
+    MissingNameOrResourceVersion,
+    #[error("Missing \"apiVersion\", \"kind\" or \"metadata\" property")]
+    MissingApiVersionKindMetadata,
+    #[error("\"object\" is not type object: {:?}", _0)]
+    ObjectNotObject(Value),
+    #[error("Missing \"object\"")]
+    MissingObject,
+    #[error("\"type\" is not a known value: {:?}", _0)]
+    UnknownEvent(String),
+    #[error("\"type\" is not string: {:?}", _0)]
+    TypeNotString(Value),
+    #[error("Missing \"type\"")]
+    MissingType,
+    #[error("Event is not type object: {:?}", _0)]
+    RootNotObject(Value),
+}
 
-impl TryFrom<destream_json::Value> for Event {
-    type Error = Error;
-    fn try_from(value: destream_json::Value) -> Result<Self, Self::Error> {
+impl TryFrom<Value> for Event {
+    type Error = EventParseError;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
-            destream_json::Value::Map(ref map) => {
+            Value::Map(ref map) => {
                 let (k8s_resource, resource_version) = match map.get("object") {
-                    Some(destream_json::Value::Map(obj)) => {
+                    Some(Value::Map(obj)) => {
                         match (obj.get("apiVersion"), obj.get("kind"), obj.get("metadata")) {
                             (
-                                Some(destream_json::Value::String(api_version)),
-                                Some(destream_json::Value::String(kind)),
-                                Some(destream_json::Value::Map(metadata)),
+                                Some(Value::String(api_version)),
+                                Some(Value::String(kind)),
+                                Some(Value::Map(metadata)),
                             ) => {
                                 match (metadata.get("name"), metadata.get("resourceVersion")) {
-                                    (
-                                        Some(destream_json::Value::String(name)),
-                                        Some(destream_json::Value::String(resource_version_str)),
-                                    ) => {
+                                    (Some(Value::String(name)), Some(Value::String(resource_version_str))) => {
                                         let rv = match resource_version_str.parse::<ResourceVersion>() {
                                             Ok(rv) => rv,
                                             Err(e) => {
                                                 eprintln!("Invalid resource version received: {:?}", e);
-                                                return Err(Error::Skipped); // invalid resourceVersion
+                                                return Err(EventParseError::InvalidResourceVersion(
+                                                    resource_version_str.clone(),
+                                                ));
+                                                // invalid resourceVersion
                                             }
                                         };
                                         let ns = match metadata.get("namespace") {
-                                            Some(destream_json::Value::String(namespace)) => Some(namespace),
+                                            Some(Value::String(namespace)) => Some(namespace),
+                                            Some(x) => return Err(EventParseError::NamespaceNotString(x.clone())),
                                             None => None,
-                                            _ => return Err(Error::Skipped), // invalid namespace
                                         };
                                         (
                                             ResourceId {
@@ -90,27 +93,31 @@ impl TryFrom<destream_json::Value> for Event {
                                             rv,
                                         )
                                     }
-                                    _ => return Err(Error::Skipped), // missing name or resource_version
+                                    _ => return Err(EventParseError::MissingNameOrResourceVersion), // missing name or resource_version
                                 }
                             }
-                            _ => return Err(Error::Skipped), // missing api_version, kind or metadata
+                            _ => return Err(EventParseError::MissingApiVersionKindMetadata), // missing api_version, kind or metadata
                         }
                     }
-                    _ => return Err(Error::Skipped), // object is not of type object
+                    Some(obj) => return Err(EventParseError::ObjectNotObject(obj.clone())), // object is not of type object
+                    None => return Err(EventParseError::MissingObject), // object is not of type object
                 };
 
-                let event_type = if let Some(destream_json::Value::String(ty)) = map.get("type") {
-                    if ty.as_str() == "ADDED" {
-                        EventType::Added
-                    } else if ty.as_str() == "MODIFIED" {
-                        EventType::Modified
-                    } else if ty.as_str() == "DELETED" {
-                        EventType::Deleted
-                    } else {
-                        return Err(Error::Skipped); // unknown event type, e.g. BOOKMARK
+                let event_type = match map.get("type") {
+                    Some(Value::String(ty)) => {
+                        if ty.as_str() == "ADDED" {
+                            EventType::Added
+                        } else if ty.as_str() == "MODIFIED" {
+                            EventType::Modified
+                        } else if ty.as_str() == "DELETED" {
+                            EventType::Deleted
+                        } else {
+                            // unknown event type, e.g. BOOKMARK
+                            return Err(EventParseError::UnknownEvent(ty.clone()));
+                        }
                     }
-                } else {
-                    return Err(Error::Skipped); // event type is missing or not string
+                    Some(val) => return Err(EventParseError::TypeNotString(val.clone())),
+                    None => return Err(EventParseError::MissingType),
                 };
                 Ok(Event {
                     event_type,
@@ -119,7 +126,7 @@ impl TryFrom<destream_json::Value> for Event {
                     resource_version: resource_version.try_into().unwrap(),
                 })
             }
-            _ => return Err(Error::Skipped),
+            val @ _ => return Err(EventParseError::RootNotObject(val)),
         }
     }
 }
