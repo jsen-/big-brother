@@ -45,7 +45,12 @@ pub trait ApiWatcher: ApiGetter {
             }
             None => format!("watch=true&resourceVersion={}", rv),
         };
-        uri.set_query(Some(query.as_str())).unwrap();
+        // expectations:
+        // we are only adding `watch=true` and `resourceVersion=<number>` to the query.
+        // Both shall be statically known not to fail. Remaining query arguments were already
+        // part of query, so they shall be safe as well
+        uri.set_query(Some(query.as_str()))
+            .expect("Could not update query string");
         req.relative_url = uri.to_string();
         req
     }
@@ -67,6 +72,7 @@ pub enum K8sApiError {
 #[derive(Clone)]
 pub struct Req<T> {
     pub method: Method,
+    // TODO: change to `RelativeReference`
     pub relative_url: String,
     pub body: Vec<u8>,
     pub status_check: fn(StatusCode) -> bool,

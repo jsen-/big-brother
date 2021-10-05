@@ -13,7 +13,9 @@ pub enum Error {
     #[error("Request error: {:?}", _0)]
     Transport(#[from] reqwest::Error),
     #[error("Stream deserialization error: {:?}", _0)]
-    Deserialize(#[from] destream_json::de::Error),
+    DeserializeStream(#[from] destream_json::de::Error),
+    #[error("Stream deserialization error: {:?}", _0)]
+    Deserialize(#[from] serde_json::Error),
     #[error("Error parsing kubernetes event: {:?}", _0)]
     EventParseError(#[from] EventParseError),
     #[error("Server could not bind to port: {:?}", _0)]
@@ -22,4 +24,6 @@ pub enum Error {
     ServerRun(io::Error),
     #[error("Could not obtain cluster config: {:?}", _0)]
     ClusterConfig(#[from] ClusterConfigError),
+    #[error("Unable to receive value from stream: {:?}", _0)]
+    StreamRecv(#[from] tokio_stream::wrappers::errors::BroadcastStreamRecvError),
 }

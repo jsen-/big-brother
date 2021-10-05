@@ -2,6 +2,7 @@ mod engine;
 mod error;
 mod event;
 mod k8s_client;
+mod utils;
 
 use actix_web::{
     body::BodyStream,
@@ -83,14 +84,14 @@ async fn watch(query: web::Query<Query>, appdata: web::Data<AppData>) -> impl Re
     };
     let cache = appdata.get_ref().cache.read().await;
     let stream = cache.stream(query.resource_version);
-    let stream = stream.map(move |evt| {
-        let (res, evt) = evt.unwrap();
+    let stream = stream.filter_map(move |evt| {
+        let (res, evt) = otry!(evt);
         if filter(&res.kind) {
-            let mut vec = serde_json::to_vec(&evt).unwrap();
+            let mut vec = otry!(serde_json::to_vec(&evt));
             vec.push(b'\n');
-            Ok::<_, std::io::Error>(Bytes::from(vec))
+            Some(Ok::<_, Error>(Bytes::from(vec)))
         } else {
-            Ok(Bytes::new())
+            None
         }
     });
     let ret = BodyStream::new(stream);

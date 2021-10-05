@@ -84,7 +84,14 @@ impl Engine {
                                                 kind: resource_list.kind.clone(),
                                                 rest: resource,
                                             };
-                                            writer.update(k8s_resource, rv, serde_json::to_value(&value).unwrap());
+                                            // expectations:
+                                            // serde_json::to_value fails if `T`'s implementation of `Serialize` decides to fail, or if `T` contains a map with non-string keys.
+                                            // None of those cases shall happen
+                                            writer.update(
+                                                k8s_resource,
+                                                rv,
+                                                serde_json::to_value(&value).expect("Resource serialization failed"),
+                                            );
                                         }
                                         Err(_) => {
                                             eprintln!("Invalid resourceVersion {:?}", res.metadata.resource_version)
@@ -103,7 +110,7 @@ impl Engine {
                                     tokio::pin!(json_stream);
                                     while let Some(value) = json_stream.next().await {
                                         match value
-                                            .map_err(Error::Deserialize)
+                                            .map_err(Error::DeserializeStream)
                                             .and_then(|value| Event::try_from(value).map_err(Error::EventParseError))
                                         {
                                             Err(e) => eprintln!("{:?}", e),
@@ -138,6 +145,11 @@ impl Engine {
             let name = api_group.name;
             api_group.preferred_version.map(|pref| (name, pref.version))
         });
+        // TODO: perform some validation of group and version, so url can be safely
+        // constructed from `format!("/apis/{}/{}/", group, version)`
+        // currently, this can cause panic in ApiWatcher
+        // however, I think it's currently impossible to construct k8s resource, that could trigger this panic
+        // this also applies to all `ApiGetters` below
         for (group, version) in api_versions {
             let api_resources = self
                 .k8s_client

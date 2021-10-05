@@ -1,10 +1,7 @@
 use crate::k8s_client::api::{ResourceId, ResourceVersion};
 use destream_json::Value;
 use serde::Serialize;
-use std::{
-    convert::{TryFrom, TryInto},
-    fmt,
-};
+use std::{convert::TryFrom, fmt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
@@ -126,7 +123,7 @@ impl TryFrom<Value> for Event {
                     event_type,
                     resource: k8s_resource,
                     value,
-                    resource_version: resource_version.try_into().unwrap(),
+                    resource_version,
                 })
             }
             val @ _ => return Err(EventParseError::RootNotObject(val)),
