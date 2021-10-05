@@ -5,7 +5,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Launch",
-            "program": "${workspaceFolder}/target/debug/k8s-watcher",
+            "program": "${workspaceFolder}/target/debug/big-brother",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "build",
             "sourceMap": {

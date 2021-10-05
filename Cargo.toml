@@ -1,5 +1,5 @@
 [package]
-name = "k8s-watcher"
+name = "big-brother"
 version = "0.1.0"
 edition = "2021"
 
