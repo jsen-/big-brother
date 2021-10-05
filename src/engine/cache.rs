@@ -1,7 +1,11 @@
 use crate::k8s_client::api::{ResourceId, ResourceVersion};
+use itertools::Itertools;
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    array::IntoIter,
+    collections::{BTreeMap, HashMap},
+};
 use tokio::sync::broadcast;
 use tokio_stream::{
     wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
@@ -30,22 +34,20 @@ pub struct Cache {
 }
 
 fn deleted_event(res: ResourceId, rv: ResourceVersion) -> Value {
-    let mut meta = [
+    let mut meta = IntoIter::new([
         ("name".to_string(), Value::String(res.name)),
         ("resourceVersion".to_string(), Value::String(rv.to_string())),
-    ]
-    .into_iter()
+    ])
     .collect::<serde_json::value::Map<_, _>>();
     if let Some(ns) = res.namespace {
         meta.insert("namespace".to_string(), Value::String(ns));
     }
 
-    let obj = [
+    let obj = IntoIter::new([
         ("apiVersion".to_string(), Value::String(res.api_version)),
         ("kind".to_string(), Value::String(res.kind)),
         ("metadata".to_string(), Value::Object(meta)),
-    ]
-    .into_iter()
+    ])
     .collect::<serde_json::value::Map<_, _>>();
     serde_json::Value::Object(obj)
 }
@@ -103,7 +105,7 @@ impl Cache {
             ),
         });
         let head = std::iter::once("<table><tr><th>apiVersion</th><th>kind</th><th>(namespace)</th><th>name</th><th>resourceVersion</th></tr><tr>".to_string());
-        let it = it.intersperse("</tr><tr>".to_string());
+        let it = Itertools::intersperse(it, "</tr><tr>".to_string());
         let tail = std::iter::once("</tr></table>".to_string());
         let s = head.chain(it).chain(tail).collect::<String>();
         s

@@ -1,7 +1,7 @@
 [package]
 name = "big-brother"
 version = "0.1.0"
-edition = "2021"
+edition = "2018"
 
 [profile.release]
 overflow-checks = true
@@ -31,6 +31,7 @@ uriparse = "0.6.3"
 serde_yaml = "0.8.17"
 dirs = "4.0.0"
 base64 = "0.13.0"
+itertools = "0.10.1"
 
 [dev-dependencies]
 tokio-test = "0.4.2"

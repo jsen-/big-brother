@@ -76,24 +76,32 @@ impl ClusterConfig {
     }
 
     pub fn from_kubeconfig(k: Kubeconfig) -> Result<Self, Error> {
-        macro_rules! find {
-            ($what:expr, $where:expr) => {
-                match $where.into_iter().find(|c| c.name == $what) {
-                    None => Err(()),
-                    Some(c) => Ok(c),
-                }
-            };
+        let contexts = k.contexts;
+        let clusters = k.clusters;
+        let users = k.users;
+        let current_context = k.current_context;
+        let context = match contexts.into_iter().find(|c| c.name == current_context) {
+            None => Err(()),
+            Some(c) => Ok(c),
         }
+        .map_err(|_| Error::MissingContext(current_context))?
+        .context;
+        let current_cluster = context.cluster;
+        let current_user = context.user;
 
-        let context = find!(k.current_context, k.contexts)
-            .map_err(|_| Error::MissingContext(k.current_context))?
-            .context;
-        let cluster = find!(context.cluster, k.clusters)
-            .map_err(|_| Error::MissingCluster(context.cluster))?
-            .cluster;
-        let user = find!(context.user, k.users)
-            .map_err(|_| Error::MissingUser(context.user))?
-            .user;
+        let cluster = match clusters.into_iter().find(|c| c.name == current_cluster) {
+            None => Err(()),
+            Some(c) => Ok(c),
+        }
+        .map_err(|_| Error::MissingCluster(current_cluster))?
+        .cluster;
+
+        let user = match users.into_iter().find(|c| c.name == current_user) {
+            None => Err(()),
+            Some(c) => Ok(c),
+        }
+        .map_err(|_| Error::MissingUser(current_user))?
+        .user;
 
         let client_cert_data =
             base64::decode(user.client_certificate_data).map_err(|err| Error::InvalidBase64Cert(err))?;

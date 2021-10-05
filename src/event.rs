@@ -1,7 +1,10 @@
 use crate::k8s_client::api::{ResourceId, ResourceVersion};
 use destream_json::Value;
 use serde::Serialize;
-use std::fmt;
+use std::{
+    convert::{TryFrom, TryInto},
+    fmt,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "UPPERCASE")]

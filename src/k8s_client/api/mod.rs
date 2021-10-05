@@ -7,9 +7,10 @@ mod resource;
 use self::api_version::ApiVersions;
 use api_group::{ApiGroup, ApiGroupList};
 pub use api_resource::{ApiResource, ApiResourceList};
+use itertools::Itertools;
 use reqwest::{Method, StatusCode};
 pub use resource::{ListItem, Metadata, Resource, ResourceList};
-use std::fmt;
+use std::{convert::TryFrom, fmt};
 use uriparse::relative_reference::RelativeReference;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -28,19 +29,20 @@ pub trait ApiWatcher: ApiGetter {
         let mut uri = RelativeReference::try_from(req.relative_url.as_str())
             .expect(&format!("Invalid uri reference {:?}", req.relative_url));
         let query = match uri.query() {
-            Some(q) => qstring::QString::from(q.as_str())
-                .into_iter()
-                .filter_map(|(key, val)| {
-                    if key == "watch" || key == "resourceVersion" {
-                        None
-                    } else {
-                        Some((key, val))
-                    }
-                })
-                .chain(std::iter::once(("watch".into(), "true".into())))
-                .map(|(key, value)| format!("{}={}", key, value))
-                .intersperse("&".to_string())
-                .collect::<String>(),
+            Some(q) => {
+                let it = qstring::QString::from(q.as_str())
+                    .into_iter()
+                    .filter_map(|(key, val)| {
+                        if key == "watch" || key == "resourceVersion" {
+                            None
+                        } else {
+                            Some((key, val))
+                        }
+                    })
+                    .chain(std::iter::once(("watch".into(), "true".into())))
+                    .map(|(key, value)| format!("{}={}", key, value));
+                Itertools::intersperse(it, "&".to_string()).collect::<String>()
+            }
             None => format!("watch=true&resourceVersion={}", rv),
         };
         uri.set_query(Some(query.as_str())).unwrap();

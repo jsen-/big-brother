@@ -1,5 +1,3 @@
-#![feature(more_qualified_paths)]
-#![feature(const_option)]
 mod engine;
 mod error;
 mod event;

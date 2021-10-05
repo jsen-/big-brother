@@ -16,7 +16,7 @@ use crate::{
 };
 pub use cache::Cache;
 use destream_json::{try_decode_iter, Value as DValue};
-use std::sync::Arc;
+use std::{convert::TryFrom, sync::Arc};
 use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
 
@@ -134,10 +134,10 @@ impl Engine {
 
     async fn watch(&self) -> Result<(), Error> {
         let group_list = self.k8s_client.get(&ApiGroupListGetter).await?;
-        let api_versions = group_list
-            .groups
-            .into_iter()
-            .filter_map(|api_group| api_group.preferred_version.map(|pref| (api_group.name, pref.version)));
+        let api_versions = group_list.groups.into_iter().filter_map(|api_group| {
+            let name = api_group.name;
+            api_group.preferred_version.map(|pref| (name, pref.version))
+        });
         for (group, version) in api_versions {
             let api_resources = self
                 .k8s_client
