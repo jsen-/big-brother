@@ -44,8 +44,9 @@ fn main() -> Result<(), Error> {
                 .app_data(Data::new(AppData { cache: cache.clone() }))
                 .service(watch)
                 .service(list)
+                .service(status)
         })
-        .bind(("127.0.0.1", 8080))
+        .bind(("0.0.0.0", 8080))
         .map_err(Error::ServerBind)?;
         server.run().await.map_err(Error::ServerRun)?;
         Ok::<_, Error>(())
@@ -102,4 +103,9 @@ async fn watch(query: web::Query<Query>, appdata: web::Data<AppData>) -> impl Re
 async fn list(appdata: web::Data<AppData>) -> impl Responder {
     let cache = appdata.get_ref().cache.read().await;
     HttpResponse::Ok().body(cache.list())
+}
+
+#[actix_web::get("/status")]
+async fn status() -> impl Responder {
+    HttpResponse::Ok()
 }

@@ -1,5 +1,10 @@
 # big-brother
 
+### Installation of helm chart
+```sh
+helm upgrade --install big-brother ./helm_chart --set token="<your_token>"
+```
+
 ### static build with `musl-libc`
 ```sh
 rustup target add "x86_64-unknown-linux-musl"

@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: big-brother
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+  - port: 80
+    targetPort: server
+  selector:
+    big-brother: big-brother
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: big-brother
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      big-brother: big-brother
+  template:
+    metadata:
+      labels:
+        big-brother: big-brother
+    spec:
+      containers:
+      - name: big-brother
+        command: [ "/big-brother" ]
+        args: [ "--token-path", "/tmp/big-brother/token" ]
+        {{- with .Values.image }}
+        image: "{{- if .registry -}}{{ .registry }}/{{- end -}}{{ .image }}:{{ .tag }}{{- if .digest -}} @{{ .digest }} {{- end -}}"
+        {{- end }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        livenessProbe:
+          httpGet:
+            path: /status
+            port: server
+        ports:
+        - name: server
+          containerPort: 8080
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /status
+            port: server
+        volumeMounts:
+        - name: token
+          mountPath: /tmp/big-brother
+          readOnly: true
+      serviceAccountName: big-brother
+      terminationGracePeriodSeconds: 3
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      volumes:
+      - name: token
+        secret:
+          secretName: big-brother-token
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: big-brother-token
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+data:
+  token: "{{ required "Missing required value .Values.token" .Values.token | b64enc }}"

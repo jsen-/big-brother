@@ -1,0 +1,8 @@
+token: ""
+image:
+  registry: ""
+  image: jsenminus/big-brother
+  tag: "0.1.0"
+  # digest: sha256:4ac3b75c45de6094a8a20ff012326d4a1e0310473a516f908d35ad2a260f39cc
+  pullPolicy: Always
+  runAsUser: 101

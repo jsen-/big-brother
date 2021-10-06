@@ -1,0 +1,5 @@
+/*
+!/deps/
+!/src/
+!/Cargo.*
+!/rustc.wrap
