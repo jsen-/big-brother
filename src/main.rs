@@ -1,3 +1,5 @@
+mod args;
+mod bearer;
 mod engine;
 mod error;
 mod event;
@@ -9,6 +11,7 @@ use actix_web::{
     web::{self, Bytes, Data},
     App, HttpResponse, HttpServer, Responder,
 };
+use bearer::{Bearer, BearerConfig};
 use engine::Cache;
 use error::Error;
 use event::EventType;
@@ -34,14 +37,25 @@ struct AppData {
 }
 
 fn main() -> Result<(), Error> {
+    let args = args::parse();
+    eprintln!("version: {}", env!("CARGO_PKG_VERSION"));
     let cc = ClusterConfig::detect()?;
     let k8s_client = K8sClient::from_cluster_config(cc)?;
     actix_web::rt::System::new().block_on(async move {
         let engine = engine::watch(k8s_client).await?;
         let cache = engine.cache().clone();
+        let bearer_config = BearerConfig::new(args.token.path.clone()).map_err(|_| {
+            Error::ReadToken(
+                args.token
+                    .path
+                    .expect("token.path is not set, but BearerConfig::new failed"),
+            )
+        })?;
         let server = HttpServer::new(move || {
+            // TODO: understand why we can't just move data into this closure
             App::new() //
                 .app_data(Data::new(AppData { cache: cache.clone() }))
+                .app_data(bearer_config.clone())
                 .service(watch)
                 .service(list)
                 .service(status)
@@ -71,7 +85,7 @@ struct Query {
 }
 
 #[actix_web::get("/watch")]
-async fn watch(query: web::Query<Query>, appdata: web::Data<AppData>) -> impl Responder {
+async fn watch(query: web::Query<Query>, appdata: web::Data<AppData>, _bearer: Bearer) -> impl Responder {
     let filter: Box<dyn Fn(&str) -> bool> = match &query.filter {
         None => Box::new(move |_| true),
         Some(Filter::Include(filter)) => {
@@ -100,7 +114,7 @@ async fn watch(query: web::Query<Query>, appdata: web::Data<AppData>) -> impl Re
 }
 
 #[actix_web::get("/list")]
-async fn list(appdata: web::Data<AppData>) -> impl Responder {
+async fn list(appdata: web::Data<AppData>, _bearer: Bearer) -> impl Responder {
     let cache = appdata.get_ref().cache.read().await;
     HttpResponse::Ok().body(cache.list())
 }

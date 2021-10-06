@@ -1,13 +1,13 @@
 mod error;
 mod kubeconfig;
 
-use crate::k8s_client::api::cluster_config::kubeconfig::Kubeconfig;
+use crate::{
+    k8s_client::api::cluster_config::kubeconfig::Kubeconfig,
+    utils::{read_to_vec, read_token},
+};
 pub use error::ClusterConfigError;
 use reqwest::{header::HeaderValue, Certificate, Identity};
-use std::{
-    fs,
-    io::{self, BufReader, Read},
-};
+use std::{fs, io};
 use ClusterConfigError as Error;
 
 pub enum AuthMethod {
@@ -43,27 +43,17 @@ impl ClusterConfig {
             Err(err) => Some(Err(err)),
         };
 
-        fn read_to_vec(file: fs::File) -> Result<Vec<u8>, io::Error> {
-            let mut buf = Vec::new();
-            BufReader::new(file).read_to_end(&mut buf)?;
-            Ok(buf)
-        }
-        fn read_token(mut file: fs::File) -> Result<String, io::Error> {
-            let mut buf = "Bearer ".to_string();
-            file.read_to_string(&mut buf)?;
-            Ok(buf)
-        }
-        fn in_cluster_inner(token_file: fs::File) -> Result<ClusterConfig, Error> {
-            let cacert_file = fs::File::open(CACERT_PATH).map_err(|err| Error::FileOpen {
+        fn in_cluster_inner(mut token_file: fs::File) -> Result<ClusterConfig, Error> {
+            let mut cacert_file = fs::File::open(CACERT_PATH).map_err(|err| Error::FileOpen {
                 path: CACERT_PATH.into(),
                 err,
             })?;
 
-            let cacert = read_to_vec(cacert_file).map_err(|err| Error::FileRead {
+            let cacert = read_to_vec(&mut cacert_file).map_err(|err| Error::FileRead {
                 path: CACERT_PATH.into(),
                 err,
             })?;
-            let token = read_token(token_file).map_err(|err| Error::FileRead {
+            let token = read_token(&mut token_file).map_err(|err| Error::FileRead {
                 path: TOKEN_PATH.into(),
                 err,
             })?;

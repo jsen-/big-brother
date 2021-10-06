@@ -6,6 +6,7 @@
             "request": "launch",
             "name": "Launch",
             "program": "${workspaceFolder}/target/debug/big-brother",
+            "args": ["--insecure-no-token"],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "build",
             "sourceMap": {

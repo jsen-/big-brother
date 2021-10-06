@@ -2,7 +2,7 @@ use crate::{
     event::EventParseError,
     k8s_client::{api::cluster_config::ClusterConfigError, K8sClientError},
 };
-use std::io;
+use std::{io, path::PathBuf};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -26,4 +26,6 @@ pub enum Error {
     ClusterConfig(#[from] ClusterConfigError),
     #[error("Unable to receive value from stream: {:?}", _0)]
     StreamRecv(#[from] tokio_stream::wrappers::errors::BroadcastStreamRecvError),
+    #[error("Unable to read token from \"{}\"", _0.display())]
+    ReadToken(PathBuf),
 }

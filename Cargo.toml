@@ -32,6 +32,7 @@ serde_yaml = "0.8.17"
 dirs = "4.0.0"
 base64 = "0.13.0"
 itertools = "0.10.1"
+structopt = { version = "0.3.22", default-features = false }
 
 [dev-dependencies]
 tokio-test = "0.4.2"

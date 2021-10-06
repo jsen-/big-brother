@@ -7,7 +7,7 @@
     "tasks": [
         {
             "label": "run",
-            "command": "cargo run",
+            "command": "cargo run -- --insecure-no-token",
             "group": {
                 "kind": "test",
                 "isDefault": true
