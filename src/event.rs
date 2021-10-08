@@ -58,7 +58,7 @@ impl TryFrom<Value> for Event {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
             Value::Map(ref map) => {
-                let (k8s_resource, resource_version) = match map.get("object") {
+                let (k8s_resource, resource_version, value) = match map.get("object") {
                     Some(Value::Map(obj)) => {
                         match (obj.get("apiVersion"), obj.get("kind"), obj.get("metadata")) {
                             (
@@ -91,6 +91,7 @@ impl TryFrom<Value> for Event {
                                                 namespace: ns.cloned(),
                                             },
                                             rv,
+                                            Value::Map(obj.clone()),
                                         )
                                     }
                                     _ => return Err(EventParseError::MissingNameOrResourceVersion), // missing name or resource_version
