@@ -49,6 +49,10 @@ spec:
         - name: token
           mountPath: /tmp/big-brother
           readOnly: true
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+      {{- toYaml .Values.imagePullSecrets | nindent 6 }}
+      {{- end }}
       serviceAccountName: big-brother
       terminationGracePeriodSeconds: 3
       tolerations:

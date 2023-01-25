@@ -6,3 +6,5 @@ image:
   # digest: sha256:4ac3b75c45de6094a8a20ff012326d4a1e0310473a516f908d35ad2a260f39cc
   pullPolicy: Always
   runAsUser: 101
+imagePullSecrets: []
+# - name: my-secret
